@@ -30,11 +30,11 @@ jobs:
         run: make stage SOC_BUILD=star6e
       - name: Verify output
         run: test -x star6e-standalone/out/star6e/venc
-      - name: Upload Star6E binary
+      - name: Upload Star6E staged output
         uses: actions/upload-artifact@v4
         with:
           name: venc-star6e
-          path: star6e-standalone/out/star6e/venc
+          path: star6e-standalone/out/star6e/
 
   build-maruko:
     runs-on: ubuntu-latest
@@ -49,11 +49,11 @@ jobs:
         run: make stage SOC_BUILD=maruko
       - name: Verify output
         run: test -x star6e-standalone/out/maruko/venc
-      - name: Upload Maruko binary
+      - name: Upload Maruko staged output
         uses: actions/upload-artifact@v4
         with:
           name: venc-maruko
-          path: star6e-standalone/out/maruko/venc
+          path: star6e-standalone/out/maruko/
 
   # ── Create/update release ──────────────────────────────────────────
 
@@ -82,6 +82,7 @@ jobs:
           for backend in star6e maruko; do
             mkdir -p "release/venc-${backend}"
             mv "release/${backend}/venc" "release/venc-${backend}/venc"
+            mv "release/${backend}/lib" "release/venc-${backend}/lib"
             cp star6e-standalone/config/venc.default.json "release/venc-${backend}/venc.json"
             chmod +x "release/venc-${backend}/venc"
             tar -czf "release/venc-${backend}.tar.gz" -C release "venc-${backend}"
@@ -106,11 +107,11 @@ jobs:
 
             | File | Backend | SoC | Contents |
             |------|---------|-----|----------|
-            | `venc-star6e.tar.gz` | Star6E | SSC30KQ / SSC338Q (Infinity6E) | `venc` + `venc.json` |
-            | `venc-maruko.tar.gz` | Maruko | SSC378QE (Infinity6C) | `venc` + `venc.json` |
+            | `venc-star6e.tar.gz` | Star6E | SSC30KQ / SSC338Q (Infinity6E) | `venc` + `lib/` + `venc.json` |
+            | `venc-maruko.tar.gz` | Maruko | SSC378QE (Infinity6C) | `venc` + `lib/` + `venc.json` |
 
-            Each archive contains the binary and default config (`venc.json`).
-            Copy `venc.json` to `/etc/venc.json` on the device.
+            Each archive contains the binary, runtime libraries (`lib/`), and default config.
+            Copy `venc.json` to `/etc/venc.json` and libraries to `/usr/lib/` on the device.
 
             See [README](https://github.com/${{ github.repository }}/blob/master/README.md) for usage.
           files: |
