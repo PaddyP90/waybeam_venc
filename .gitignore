@@ -8,6 +8,5 @@ star6e-standalone/.build_soc
 star6e-standalone/tools/ioctl_trace_preload.so
 star6e-standalone/tools/libmaruko_uclibc_shim.so
 
-codex_resume
-resume_codex
+star6e-standalone/tests/test_runner
 star6e-standalone/tests/test_imu_ring

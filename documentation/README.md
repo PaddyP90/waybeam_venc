@@ -1,6 +1,6 @@
 # Documentation Index
 
-This folder is the canonical place for Star6E standalone project documentation.
+This folder is the canonical place for waybeam_venc project documentation.
 
 ## Core Docs
 - `documentation/DUAL_BACKEND_SPLIT_PLAN.md`
