@@ -271,7 +271,8 @@ static void *cus3a_thread(void *arg)
 				if (s->cfg.verbose)
 					printf("[cus3a] frame sync ended, "
 						"switching to timer\n");
-				s->fn_close_sync(fd0, fd1);
+				if (s->fn_close_sync)
+					s->fn_close_sync(fd0, fd1);
 				have_sync = 0;
 			}
 		}
@@ -374,7 +375,11 @@ static void *cus3a_thread(void *arg)
 
 next:
 		{
-			struct timespec req = {0, sleep_ms * 1000000UL};
+			unsigned long ns = sleep_ms * 1000000UL;
+			struct timespec req = {
+				(time_t)(ns / 1000000000UL),
+				(long)(ns % 1000000000UL)
+			};
 			nanosleep(&req, NULL);
 		}
 	}
