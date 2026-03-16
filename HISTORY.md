@@ -8,7 +8,9 @@
   non-8kHz). Standard PTs (0, 8, 11) still used when rate matches RFC 3551.
 - Clamp audio sample_rate to 8000-48000 in config parser.
 - Default audio codec changed from `pcm` to `g711a` in venc.default.json.
-- Add `slicesEnabled`/`sliceSize` fields to default config (off by default).
+- Remove `slicesEnabled`/`sliceSize`/`lowDelay` config fields (no firmware support on I6E).
+- Add `frameLost` config field for frame-lost strategy (default: true).
+- Fix kbps verbose overflow on 32-bit ARM (displayed ~400 instead of ~13000 at high bitrates).
 
 ## [0.3.0] - 2026-03-15
 - Custom 3A thread for Star6E — replaces ISP internal AE/AWB with a

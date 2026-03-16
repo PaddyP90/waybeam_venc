@@ -93,7 +93,7 @@ template is provided at `config/venc.default.json`.
   "video0": {
     "codec": "h265", "rcMode": "cbr", "fps": 30, "size": "1920x1080",
     "bitrate": 8192, "gopSize": 1.0,
-    "slicesEnabled": true, "sliceSize": 4, "lowDelay": false
+    "qpDelta": -4
   },
   "outgoing": {
     "enabled": false, "server": "", "streamMode": "rtp",
@@ -341,10 +341,6 @@ the video stream. Fields marked **restart** trigger a pipeline reinit.
 | `video0.size` | WxH | restart | Encode resolution (e.g., `"1920x1080"`) |
 | `video0.bitrate` | uint | live | Target bitrate in kbps |
 | `video0.gop_size` | double | live | GOP interval in seconds (0 = all-intra) |
-| `video0.slices_enabled` | bool | restart | Enable slice-based encoding |
-| `video0.slice_size` | uint | restart | Rows per slice |
-| `video0.low_delay` | bool | restart | Low-delay encoding mode |
-
 #### Outgoing (Streaming)
 
 | Field | Type | Mutability | Description |

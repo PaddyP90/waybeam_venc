@@ -23,9 +23,7 @@
     "bitrate": 8192,
     "gopSize": 1.0,
     "qpDelta": -4,
-    "slicesEnabled": false,
-    "sliceSize": 4,
-    "lowDelay": false
+    "frameLost": true
   },
   "outgoing": {
     "enabled": false,
