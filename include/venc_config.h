@@ -35,10 +35,7 @@ typedef struct {
 	uint32_t exposure;     /* milliseconds in JSON config, 0 = auto */
 	bool legacy_ae;        /* true = use legacy ISP AE + handoff instead of custom AE */
 	uint32_t ae_fps;       /* custom AE rate in Hz (default 15) */
-	int ae_target_low;     /* custom AE luma dead-band low 0-255 (default 100) */
-	int ae_target_high;    /* custom AE luma dead-band high 0-255 (default 140) */
-	int ae_change_pct;     /* custom AE step size percent (default 10) */
-	uint32_t ae_gain_max;  /* custom AE max sensor gain x1024 (default 20480=20x) */
+	uint32_t gain_max;     /* max sensor gain (0 = use ISP bin default) */
 	char awb_mode[16];     /* "auto" or "ct_manual" */
 	uint32_t awb_ct;       /* color temperature in Kelvin (for ct_manual) */
 } VencConfigIsp;

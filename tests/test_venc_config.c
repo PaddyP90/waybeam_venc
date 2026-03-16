@@ -64,7 +64,7 @@ static int test_defaults(void)
 	CHECK("defaults_server", cfg.outgoing.server[0] == '\0');
 	CHECK("defaults_stream_mode", strcmp(cfg.outgoing.stream_mode, "rtp") == 0);
 	CHECK("defaults_payload", cfg.outgoing.max_payload_size == 1400);
-	CHECK("defaults_target_pkt_rate", cfg.outgoing.target_pkt_rate == 850);
+	CHECK("defaults_target_pkt_rate", cfg.outgoing.target_pkt_rate == 0);
 	CHECK("defaults_send_feedback", cfg.outgoing.send_feedback == false);
 
 	CHECK("defaults_roi_on", cfg.fpv.roi_enabled == true);
@@ -384,7 +384,7 @@ static int test_sample_config_file(void)
 	CHECK("sample_load_ok", ret == 0);
 	if (ret != 0) return failures;
 
-	CHECK("sample_fps_30", cfg.video0.fps == 30);
+	CHECK("sample_fps_60", cfg.video0.fps == 60);
 	CHECK("sample_codec_h265", strcmp(cfg.video0.codec, "h265") == 0);
 	CHECK("sample_enabled", cfg.outgoing.enabled == false);
 	CHECK("sample_server", strcmp(cfg.outgoing.server, "") == 0);

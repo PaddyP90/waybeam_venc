@@ -79,12 +79,8 @@ void venc_config_defaults(VencConfig *cfg)
 	/* isp */
 	cfg->isp.sensor_bin[0] = '\0';
 	cfg->isp.exposure = 0;
-	cfg->isp.legacy_ae = false;
+	cfg->isp.legacy_ae = true;
 	cfg->isp.ae_fps = 15;
-	cfg->isp.ae_target_low = 100;
-	cfg->isp.ae_target_high = 140;
-	cfg->isp.ae_change_pct = 10;
-	cfg->isp.ae_gain_max = 20480;
 	safe_strcpy(cfg->isp.awb_mode, sizeof(cfg->isp.awb_mode), "auto");
 	cfg->isp.awb_ct = 5500;
 
@@ -111,7 +107,7 @@ void venc_config_defaults(VencConfig *cfg)
 	cfg->outgoing.server[0] = '\0';
 	safe_strcpy(cfg->outgoing.stream_mode, sizeof(cfg->outgoing.stream_mode), "rtp");
 	cfg->outgoing.max_payload_size = 1400;
-	cfg->outgoing.target_pkt_rate = 850;
+	cfg->outgoing.target_pkt_rate = 0;
 	cfg->outgoing.send_feedback = false;
 
 	/* fpv */
@@ -223,10 +219,7 @@ static void load_isp(const cJSON *root, VencConfigIsp *s)
 	s->exposure = (uint32_t)json_get_int(obj, "exposure", (int)s->exposure);
 	s->legacy_ae = json_get_bool(obj, "legacyAe", s->legacy_ae);
 	s->ae_fps = (uint32_t)json_get_int(obj, "aeFps", (int)s->ae_fps);
-	s->ae_target_low = json_get_int(obj, "aeTargetLow", s->ae_target_low);
-	s->ae_target_high = json_get_int(obj, "aeTargetHigh", s->ae_target_high);
-	s->ae_change_pct = json_get_int(obj, "aeChangePct", s->ae_change_pct);
-	s->ae_gain_max = (uint32_t)json_get_int(obj, "aeGainMax", (int)s->ae_gain_max);
+	s->gain_max = (uint32_t)json_get_int(obj, "gainMax", (int)s->gain_max);
 	safe_strcpy(s->awb_mode, sizeof(s->awb_mode),
 		json_get_string(obj, "awbMode", s->awb_mode));
 	s->awb_ct = (uint32_t)json_get_int(obj, "awbCt", (int)s->awb_ct);
@@ -530,10 +523,7 @@ static cJSON *config_to_cjson(const VencConfig *cfg)
 		cJSON_AddNumberToObject(isp, "exposure", cfg->isp.exposure);
 		cJSON_AddBoolToObject(isp, "legacyAe", cfg->isp.legacy_ae);
 		cJSON_AddNumberToObject(isp, "aeFps", cfg->isp.ae_fps);
-		cJSON_AddNumberToObject(isp, "aeTargetLow", cfg->isp.ae_target_low);
-		cJSON_AddNumberToObject(isp, "aeTargetHigh", cfg->isp.ae_target_high);
-		cJSON_AddNumberToObject(isp, "aeChangePct", cfg->isp.ae_change_pct);
-		cJSON_AddNumberToObject(isp, "aeGainMax", cfg->isp.ae_gain_max);
+		cJSON_AddNumberToObject(isp, "gainMax", cfg->isp.gain_max);
 		cJSON_AddStringToObject(isp, "awbMode", cfg->isp.awb_mode);
 		cJSON_AddNumberToObject(isp, "awbCt", cfg->isp.awb_ct);
 	}

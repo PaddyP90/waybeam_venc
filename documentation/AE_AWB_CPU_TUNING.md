@@ -3,45 +3,38 @@
 This document describes the 3A (AE/AWB) processing strategy in the standalone
 `venc` encoder.
 
-## Custom 3A Thread (Star6E, default since v0.3.0)
+## Supervisory AE Thread (Star6E, opt-in via `legacyAe: false`)
 
-Star6E runs a dedicated 15 Hz thread that handles both AE (auto-exposure) and
-AWB (auto white balance), replacing the ISP's internal per-frame CUS3A
-callbacks.  This is the default behavior — no configuration is needed.
+Star6E can run a lightweight supervisory thread that enforces FPV constraints
+(gain cap, shutter cap) while letting the ISP's proven internal AE handle
+actual exposure convergence.  Enable it by setting `"legacyAe": false` in
+the config.
 
-### Why Custom 3A?
+### How It Works
 
-The ISP's built-in CUS3A runs AE/AWB callbacks at every sensor frame.  At
-120fps this consumes significant CPU (~3.6ms per DoAe call = 30% throughput
-loss).  The previous workaround (`--ae-cadence`) toggled CUS3A on/off every
-N frames, but this was fragile and still relied on the ISP's opaque AE
-algorithm.
+The ISP's internal AE stays in NORMAL state at all times.  The supervisory
+thread monitors HW statistics and enforces constraints via
+`MI_ISP_AE_SetExposureLimit()`:
 
-The custom 3A thread pauses the ISP's internal AE via `MI_ISP_AE_SetState`
-and disables the CUS3A AWB callback via `MI_ISP_CUS3A_Enable(1,0,0)`.  It
-then polls HW statistics at a configurable rate (default 15 Hz) and applies
-exposure/gain/WB corrections directly.
+1. **Startup**: Reads the ISP bin's default exposure limits as a baseline.
+   If `gainMax` or `shutter_max_us` are configured, tightens the limits
+   via a single `SetExposureLimit` call.
+2. **Loop** (at `aeFps` Hz, default 15): Reads HW stats for avg_y
+   monitoring.  If `shutter_max_us` or `gainMax` have changed at runtime
+   (e.g. via the HTTP API), reads current limits, updates the changed
+   field, and writes back.  Only calls `SetExposureLimit` when a limit
+   actually changes — never spams it.
+3. **Logging**: Every 5 seconds, logs avg_y, current shutter/gain, and
+   ISP AE state (should always be "normal").
 
-### AE Algorithm
+The CUS3A handoff (`enable(1,1,1)` -> 1s delay -> `enable(0,0,0)`) fires
+normally after ISP bin load.  After handoff, the ISP's internal AE runs
+autonomously in firmware at near-zero ARM CPU cost.  The supervisory thread
+adds only the overhead of reading stats and (rarely) writing limits.
 
-Proportional controller with dead-band:
-- Reads raw luma averages from `MI_ISP_AE_GetAeHwAvgStats` (128x90 grid)
-- Target: average Y within configurable range (default 100-140 out of 255)
-- Priority: increase shutter first, then gain (dark); decrease gain first,
-  then shutter (bright)
-- Max shutter auto-derived from sensor FPS (`1000000 / fps`), synced with
-  the `isp.exposure` API control
-- Max gain configurable (default 20480 = 20x, FPV-optimized for low noise)
-- Step size configurable (default 10% per cycle)
-
-### AWB Algorithm
-
-Grey-world with IIR smoothing:
-- Reads per-block R/G/B averages from `MI_ISP_AWB_GetAwbHwAvgStats`
-- Normalizes R and B gains to match G channel (grey-world assumption)
-- IIR filter: 70% old gain + 30% new target, preventing oscillation
-- Dead-band: 2% change threshold to avoid churn in stable scenes
-- Gain limits: 0.5x to 8x
+AWB is handled entirely by the ISP's internal AWB.  The `awbMode` control
+(`auto` / `ct_manual`) in `star6e_controls.c` works independently of this
+thread via direct ISP AWB API calls.
 
 ### Configuration
 
@@ -49,21 +42,20 @@ All settings are in the `isp` section of `/etc/venc.json`:
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `legacyAe` | `false` | Set `true` to revert to ISP internal AE + handoff |
-| `aeFps` | `15` | 3A processing rate in Hz |
-| `aeTargetLow` | `100` | Luma dead-band lower bound (0-255) |
-| `aeTargetHigh` | `140` | Luma dead-band upper bound (0-255) |
-| `aeChangePct` | `10` | AE step size per cycle (percent) |
-| `aeGainMax` | `20480` | Max sensor gain (x1024; 20480 = 20x) |
+| `legacyAe` | `true` | Set `false` to use supervisory AE thread |
+| `aeFps` | `15` | Monitoring rate in Hz |
+| `gainMax` | `0` | Max sensor gain cap (0 = use ISP bin default) |
 
-Example — aggressive convergence with lower gain ceiling:
+Shutter cap is auto-derived from sensor FPS (`1000000 / fps`) and can be
+overridden at runtime via the `isp.exposure` API control.
+
+Example — enable supervisory AE with gain cap:
 ```json
 {
   "isp": {
-    "sensorBin": "/etc/sensors/imx335.bin",
-    "aeFps": 25,
-    "aeChangePct": 20,
-    "aeGainMax": 10240
+    "legacyAe": false,
+    "aeFps": 15,
+    "gainMax": 10000
   }
 }
 ```
@@ -71,69 +63,58 @@ Example — aggressive convergence with lower gain ceiling:
 ### Interaction with Exposure API
 
 Setting `isp.exposure` via the HTTP API updates both the ISP's exposure
-limit and the custom AE thread's max shutter in real time.  Setting
-`isp.exposure=0` resets to the FPS-derived default.
+limit (via `cap_exposure_for_fps`) and the supervisory thread's shutter cap
+in real time.  Setting `isp.exposure=0` resets to the FPS-derived default.
 
-### Interaction with Manual AWB
+### Interaction with Gain Max API
 
-Setting `isp.awb_mode=ct_manual` pauses the custom AWB loop.  The
-user-specified color temperature is applied directly via `MI_ISP_AWB_SetAttr`.
-Setting `isp.awb_mode=auto` resumes the custom AWB loop.
+Setting `isp.gainMax` via the HTTP API updates the supervisory thread's gain
+cap.  The thread picks up the change on its next cycle and writes it via
+`SetExposureLimit`.  A value of 0 means "use ISP bin default" (no cap).
 
 ### Monitoring
 
 The thread logs status every 5 seconds:
 ```
-[cus3a] 300 frames, ae=23 awb=0, shutter=1306us gain=10240 avgY=132 wb=R2111/G1024/B2250 isp_ae=paused
+[cus3a] 300 frames, 2 limit writes, shutter=1306us gain=10240 avgY=132 isp_ae=normal
 ```
 
-At startup it verifies the ISP AE is paused and logs the configuration:
+At startup it reads the ISP bin baseline and logs initial constraints:
 ```
-[cus3a] ISP AE state after pause: PAUSED (raw=1, ret=0)
-[cus3a] CUS3A AWB/AF disabled (ret=0)
-[cus3a] thread started: 15 Hz, target Y 100-140, gain 1024-20480, shutter 150-8333us, step 10%, awb=on
+[cus3a] ISP bin limits: gain 1024-32768, isp_gain max 1024, shutter 150-33333us
+[cus3a] ISP AE state: NORMAL
+[cus3a] initial limits: maxShutter=8333us maxGain=10000
+[cus3a] supervisory thread started: 15 Hz, shutter cap 8333us, gain cap 10000
 ```
 
-If the ISP AE state is unexpectedly re-enabled, the thread re-pauses it
-and logs a warning.
+### Why Not Custom AE?
 
-### Benchmark Data (imx335, ISP bin loaded)
+The previous implementation (pre-supervisory) used `MI_ISP_CUS3A_SetAeParam()`
+to drive exposure directly from the thread.  Live hardware testing proved this
+API does NOT write to sensor registers — the sensor stays frozen at whatever
+the ISP set before the custom thread took over.  The ISP's internal AE in
+NORMAL state is the only thing that actually drives the sensor.
 
-**120fps (mode 3, 1920x1080):**
+`MI_ISP_AE_SetExposureLimit()` is the only working API for influencing exposure
+— it modifies the bounds the ISP's internal AE operates within.
 
-| Config | Steady-state FPS | Notes |
-|--------|-----------------|-------|
-| Custom 3A (default) | 119 | Full rate, 15 Hz AE+AWB |
-| Custom 3A, 30 Hz | 119 | Higher 3A rate, no throughput impact |
-| Legacy AE | 119 | ISP internal AE (after CUS3A handoff) |
+## Legacy AE Mode (default)
 
-**All sensor modes (custom 3A, default settings):**
-
-| Mode | Resolution | Target FPS | Actual FPS |
-|------|-----------|-----------|------------|
-| 0 | 2560x1920 | 30 | 30 |
-| 1 | 2560x1920 | 60 | 60 |
-| 2 | 2400x1350 | 90 | 83-89 |
-| 3 | 1920x1080 | 120 | 119 |
-
-## Legacy AE Mode
-
-Set `"legacyAe": true` in the ISP config section to revert to the original
-ISP-managed AE behavior:
+The default AE mode uses the ISP's internal auto-exposure:
 
 1. CUS3A is enabled (1,1,1) at startup
 2. After 1 second, CUS3A is disabled (0,0,0) — the "handoff"
 3. The ISP's internal AE continues running autonomously
 4. AWB runs via the ISP's internal callbacks at frame rate
 
-This mode exists for compatibility and debugging.  The custom 3A thread is
-not started and has zero overhead.
+In this mode the supervisory thread is not started and has zero overhead.
+Set `"legacyAe": false` to switch to the supervisory thread.
 
 ## Maruko Backend
 
 Maruko keeps CUS3A enabled (1,1,1) permanently — the ISP pipeline requires
 it for frame processing at >=60fps (without it, the ISP FIFO stalls).
-The custom 3A thread is Star6E-only.  Maruko uses the ISP's internal AE/AWB
+The supervisory thread is Star6E-only.  Maruko uses the ISP's internal AE/AWB
 at all times.
 
 ## Automatic Exposure Cap
@@ -141,7 +122,7 @@ at all times.
 Both backends automatically cap `maxShutterUs` to `1000000 / fps` after ISP
 bin load.  This prevents the ISP bin's default shutter limit (often 10ms)
 from throttling high-fps modes.  The cap applies regardless of AE mode
-(custom or legacy).
+(supervisory or legacy).
 
 ```
 > Exposure cap: maxShutter 10000us -> 8333us (for 120 fps)
@@ -149,7 +130,8 @@ from throttling high-fps modes.  The cap applies regardless of AE mode
 
 ## Notes
 
-- The custom 3A thread uses ~125 KB heap (90 KB AE stats + 35 KB AWB stats).
+- The supervisory thread uses ~90 KB heap (AE stats buffer only — no AWB
+  stats needed).
 - All ISP symbols are resolved via `dlsym` — no build-time dependency on
   specific SDK versions.
 - AE struct layout was verified via hex dump on Star6E imx335.  The

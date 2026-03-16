@@ -189,14 +189,10 @@ static void start_custom_ae(const Star6ePipelineState *ps,
 	ae_cfg.sensor_fps = ps->sensor.fps;
 	if (vcfg->isp.ae_fps > 0)
 		ae_cfg.ae_fps = vcfg->isp.ae_fps;
-	if (vcfg->isp.ae_target_low > 0)
-		ae_cfg.target_y_low = vcfg->isp.ae_target_low;
-	if (vcfg->isp.ae_target_high > 0)
-		ae_cfg.target_y_high = vcfg->isp.ae_target_high;
-	if (vcfg->isp.ae_change_pct > 0)
-		ae_cfg.change_pct = vcfg->isp.ae_change_pct;
-	if (vcfg->isp.ae_gain_max > 0)
-		ae_cfg.gain_max = vcfg->isp.ae_gain_max;
+	if (vcfg->isp.exposure > 0)
+		ae_cfg.shutter_max_us = vcfg->isp.exposure * 1000;
+	if (vcfg->isp.gain_max > 0)
+		ae_cfg.gain_max = vcfg->isp.gain_max;
 	ae_cfg.verbose = vcfg->system.verbose;
 	star6e_cus3a_start(&ae_cfg);
 }

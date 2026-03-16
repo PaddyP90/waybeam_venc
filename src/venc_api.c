@@ -131,6 +131,7 @@ static const FieldDesc g_fields[] = {
 
 	FIELD(isp, sensor_bin,         FT_STRING, MUT_RESTART),
 	FIELD(isp, exposure,           FT_UINT,   MUT_LIVE),
+	FIELD(isp, gain_max,           FT_UINT,   MUT_LIVE),
 	FIELD(isp, awb_mode,           FT_STRING, MUT_LIVE),
 	FIELD(isp, awb_ct,             FT_UINT,   MUT_LIVE),
 
@@ -189,6 +190,7 @@ static const FieldAlias g_field_aliases[] = {
 	{ "system.webPort", "system.web_port" },
 	{ "system.overclockLevel", "system.overclock_level" },
 	{ "isp.sensorBin", "isp.sensor_bin" },
+	{ "isp.gainMax", "isp.gain_max" },
 	{ "isp.awbMode", "isp.awb_mode" },
 	{ "isp.awbCt", "isp.awb_ct" },
 	{ "video0.rcMode", "video0.rc_mode" },
@@ -373,6 +375,8 @@ static int try_apply_live(const char *key, const FieldDesc *f)
 	}
 	if (strcmp(key, "isp.exposure") == 0 && g_cb->apply_exposure)
 		return g_cb->apply_exposure(g_cfg->isp.exposure * 1000);  /* ms -> us */
+	if (strcmp(key, "isp.gain_max") == 0 && g_cb->apply_gain_max)
+		return g_cb->apply_gain_max(g_cfg->isp.gain_max);
 	if (strcmp(key, "isp.awb_mode") == 0 && g_cb->apply_awb_mode) {
 		int mode = 0;
 		if (strcmp(g_cfg->isp.awb_mode, "ct_manual") == 0) mode = 1;

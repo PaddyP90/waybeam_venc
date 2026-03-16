@@ -3,17 +3,14 @@
 
 #include <stdint.h>
 
-/** Custom AE configuration. */
+/** Supervisory AE configuration.
+ *  The thread enforces FPV constraints (gain cap, shutter cap) via
+ *  SetExposureLimit while the ISP's internal AE handles convergence. */
 typedef struct {
 	uint32_t sensor_fps;       /* sensor output fps (for max shutter calc) */
-	uint32_t ae_fps;           /* AE processing rate in Hz (default 15) */
-	int      target_y_low;     /* dead-band lower bound 0-255 (default 100) */
-	int      target_y_high;    /* dead-band upper bound 0-255 (default 140) */
-	int      change_pct;       /* gain/shutter step size percent (default 10) */
-	uint32_t gain_min;         /* minimum sensor gain (default 1024 = 1x) */
-	uint32_t gain_max;         /* maximum sensor gain (default 20480 = 20x) */
-	uint32_t shutter_min_us;   /* minimum shutter time (default 150us) */
+	uint32_t ae_fps;           /* monitoring rate in Hz (default 15) */
 	uint32_t shutter_max_us;   /* 0 = auto from sensor_fps */
+	uint32_t gain_max;         /* 0 = use ISP bin default */
 	int      verbose;          /* enable periodic status logging */
 } Star6eCus3aConfig;
 
@@ -21,18 +18,18 @@ typedef struct {
 void star6e_cus3a_config_defaults(Star6eCus3aConfig *cfg);
 
 /**
- * Start the custom AE thread.
+ * Start the supervisory AE thread.
  *
- * Pauses the ISP's internal AE and runs a simple proportional
- * controller at the configured rate.  Call after ISP bin is loaded
- * and CUS3A has been enabled (1,1,1).
+ * The ISP's internal AE stays in NORMAL state.  This thread monitors
+ * HW stats and enforces gain/shutter caps via SetExposureLimit.
+ * Call after ISP bin is loaded and CUS3A has been enabled (1,1,1).
  *
  * Returns 0 on success, -1 on error.
  */
 int star6e_cus3a_start(const Star6eCus3aConfig *cfg);
 
 /**
- * Stop the custom AE thread and resume ISP internal AE.
+ * Stop the supervisory AE thread.
  * Safe to call if the thread was never started.
  */
 void star6e_cus3a_stop(void);
@@ -43,16 +40,15 @@ void star6e_cus3a_request_stop(void);
 /** Wait for the thread to exit after request_stop(). */
 void star6e_cus3a_join(void);
 
-/** Return 1 if the custom AE thread is running. */
+/** Return 1 if the supervisory AE thread is running. */
 int star6e_cus3a_running(void);
 
 /** Update the max shutter time (us) at runtime.
  *  Called by the exposure control when the user changes isp.exposure. */
 void star6e_cus3a_set_shutter_max(uint32_t max_us);
 
-/** Set manual AWB override.  When manual=1, the custom AWB loop is
- *  paused and the caller controls white balance directly.
- *  When manual=0, the grey-world AWB loop resumes. */
-void star6e_cus3a_set_awb_manual(int manual);
+/** Update the max sensor gain at runtime.
+ *  Called when the user changes isp.gainMax via API. */
+void star6e_cus3a_set_gain_max(uint32_t gain);
 
 #endif /* STAR6E_CUS3A_H */
