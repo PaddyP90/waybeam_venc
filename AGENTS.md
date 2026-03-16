@@ -193,6 +193,76 @@ Run deployment test with --json-summary
   └── status=device_unresponsive    → STOP. Log CRASH_LOG.md. Wait for power cycle.
 ```
 
+## JSON Config Deploy & Test (Preferred)
+
+The preferred method for interactive testing uses the device's production
+JSON config (`/etc/venc.json`) and the HTTP API. This tests the actual
+runtime path including config parsing, pipeline init, and API controls.
+
+### Quick cycle
+
+```bash
+# 1. Build
+make build SOC_BUILD=star6e
+
+# 2. Stop running instance
+ssh root@<HOST> "killall venc; sleep 2"
+
+# 3. Deploy binary
+scp -O out/star6e/venc root@<HOST>:/usr/bin/venc
+
+# 4. (Optional) Modify config — use sed for one-shot changes
+ssh root@<HOST> "sed -i 's/\"legacyAe\": true/\"legacyAe\": false/' /etc/venc.json"
+ssh root@<HOST> "sed -i 's/\"verbose\": false/\"verbose\": true/' /etc/venc.json"
+
+# 5. Start venc as daemon with log capture
+ssh root@<HOST> "nohup venc > /tmp/venc.log 2>&1 &"
+
+# 6. Wait for pipeline init (~10s), then query
+sleep 10
+ssh root@<HOST> "wget -q -O- http://127.0.0.1/api/v1/ae"
+
+# 7. Check startup log
+ssh root@<HOST> "cat /tmp/venc.log"
+
+# 8. Live API controls
+ssh root@<HOST> "wget -q -O- 'http://127.0.0.1/api/v1/set?isp.gainMax=10000'"
+ssh root@<HOST> "wget -q -O- 'http://127.0.0.1/api/v1/set?isp.exposure=3'"
+
+# 9. Verify via AE diagnostics
+ssh root@<HOST> "wget -q -O- http://127.0.0.1/api/v1/ae"
+
+# 10. Check for specific log patterns
+ssh root@<HOST> "grep 'limits updated' /tmp/venc.log"
+
+# 11. Cleanup — restore config and stop
+ssh root@<HOST> "sed -i 's/\"legacyAe\": false/\"legacyAe\": true/' /etc/venc.json"
+ssh root@<HOST> "sed -i 's/\"verbose\": true/\"verbose\": false/' /etc/venc.json"
+ssh root@<HOST> "killall venc"
+```
+
+### Key endpoints for verification
+
+| Endpoint | Purpose |
+|----------|---------|
+| `/api/v1/ae` | AE diagnostics: ISP state, exposure limits, sensor plane, stability |
+| `/api/v1/awb` | AWB diagnostics: gain values, color temp, stabilizer state |
+| `/api/v1/config` | Full active runtime config |
+| `/api/v1/set?<field>=<value>` | Live config change (see HTTP_API_CONTRACT.md) |
+| `/metrics/isp` | Compact ISP metrics (Prometheus format) |
+
+### Why this method over remote-test
+
+- Tests the **production config path** (`/etc/venc.json` parsing, not CLI args)
+- Validates **HTTP API** integration end-to-end
+- Supports **live parameter changes** without restart
+- Log persists in `/tmp/venc.log` for post-mortem analysis
+- Binary stays deployed in `/usr/bin/venc` for manual re-runs
+
+The `make remote-test` workflow (below) is still useful for automated sensor
+mode sweeps and CI, but JSON config deploy-and-test is the preferred method
+for interactive development and feature validation.
+
 ## Error Recovery Loop
 
 When any build or verification step fails, follow this structured cycle.
@@ -300,7 +370,7 @@ to skip that combination.
 | Star6E | ssc30kq | imx415 | 0 | | | |
 | Star6E | ssc30kq | imx335 | 0 | | | |
 | Star6E | ssc338q | imx415 | 0 | | `/etc/sensors/imx415_greg_fpvVII-gpt200.bin` | `--verbose` |
-| Star6E | ssc338q | imx335 | 0 | 192.168.2.13 | `/etc/sensors/imx335_greg_fpvVII-gpt200.bin` | `--verbose` |
+| Star6E | ssc338q | imx335 | 0 | 192.168.1.13 | `/etc/sensors/imx335_greg_fpvVII-gpt200.bin` | `--verbose` |
 | Maruko | ssc378qe | imx415 | 0 | 192.168.2.12 | `/etc/sensors/imx415.bin` | |
 | Maruko | ssc378qe | imx335 | 0 | | `/etc/sensors/imx335.bin` | |
 

@@ -331,11 +331,18 @@ static int apply_exposure(uint32_t us)
 		cap_us = us;
 	}
 
-	/* Keep custom AE thread's shutter limit in sync */
+	/* Keep supervisory AE thread's shutter limit in sync */
 	if (star6e_cus3a_running())
 		star6e_cus3a_set_shutter_max(cap_us);
 
 	return star6e_pipeline_cap_exposure_for_fps(0, cap_us);
+}
+
+static int apply_gain_max(uint32_t gain)
+{
+	if (star6e_cus3a_running())
+		star6e_cus3a_set_gain_max(gain);
+	return 0;
 }
 
 static int apply_verbose(bool on)
@@ -789,45 +796,35 @@ static int apply_awb_mode(int mode, uint32_t ct)
 		return -1;
 
 	if (mode == 0) {
-		/* Resume custom AWB if the 3A thread is running */
-		if (star6e_cus3a_running()) {
-			star6e_cus3a_set_awb_manual(0);
-			printf("> AWB mode: auto (custom AWB resumed)\n");
-		} else {
-			fn_get_t fn_get = (fn_get_t)dlsym(handle,
-				"MI_ISP_AWB_GetAttr");
-			fn_set_t fn_set = (fn_set_t)dlsym(handle,
-				"MI_ISP_AWB_SetAttr");
+		fn_get_t fn_get = (fn_get_t)dlsym(handle,
+			"MI_ISP_AWB_GetAttr");
+		fn_set_t fn_set = (fn_set_t)dlsym(handle,
+			"MI_ISP_AWB_SetAttr");
 
-			if (fn_get && fn_set) {
-				AwbAttr_t attr;
+		if (fn_get && fn_set) {
+			AwbAttr_t attr;
 
-				memset(&attr, 0, sizeof(attr));
-				if (fn_get(0, &attr) == 0) {
-					MI_S32 awb_ret;
+			memset(&attr, 0, sizeof(attr));
+			if (fn_get(0, &attr) == 0) {
+				MI_S32 awb_ret;
 
-					attr.eState = 0;
-					attr.eOpType = STAR6E_AWB_MODE_AUTO;
-					awb_ret = fn_set(0, &attr);
-					if (awb_ret != 0) {
-						fprintf(stderr, "WARNING: MI_ISP_AWB_SetAttr(auto) failed: 0x%08x\n",
-							(unsigned)awb_ret);
-						ret = -1;
-					} else {
-						printf("> AWB mode: auto\n");
-					}
-				} else {
+				attr.eState = 0;
+				attr.eOpType = STAR6E_AWB_MODE_AUTO;
+				awb_ret = fn_set(0, &attr);
+				if (awb_ret != 0) {
+					fprintf(stderr, "WARNING: MI_ISP_AWB_SetAttr(auto) failed: 0x%08x\n",
+						(unsigned)awb_ret);
 					ret = -1;
+				} else {
+					printf("> AWB mode: auto\n");
 				}
 			} else {
 				ret = -1;
 			}
+		} else {
+			ret = -1;
 		}
 	} else {
-		/* Pause custom AWB before applying manual CT */
-		if (star6e_cus3a_running())
-			star6e_cus3a_set_awb_manual(1);
-
 		fn_ctmwb_t fn_ctmwb = (fn_ctmwb_t)dlsym(handle,
 			"MI_ISP_AWB_SetCTMwbAttr");
 		fn_get_t fn_get = (fn_get_t)dlsym(handle, "MI_ISP_AWB_GetAttr");
@@ -945,6 +942,7 @@ static const VencApplyCallbacks g_star6e_apply_callbacks = {
 	.apply_qp_delta = apply_qp_delta,
 	.apply_roi_qp = apply_roi_qp,
 	.apply_exposure = apply_exposure,
+	.apply_gain_max = apply_gain_max,
 	.apply_verbose = apply_verbose,
 	.apply_output_enabled = apply_output_enabled,
 	.apply_server = apply_server,

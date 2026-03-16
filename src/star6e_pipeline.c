@@ -260,10 +260,6 @@ void star6e_pipeline_cus3a_tick(SdkQuietState *sdk_quiet,
 	if (g_cus3a_handoff_done || !ts_last)
 		return;
 
-	/* Skip handoff when custom AE thread manages CUS3A */
-	if (star6e_cus3a_running())
-		return;
-
 	clock_gettime(CLOCK_MONOTONIC, &now);
 	elapsed_ms =
 		((long long)(now.tv_sec - ts_last->tv_sec) * 1000LL) +

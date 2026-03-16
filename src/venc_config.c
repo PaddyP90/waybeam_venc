@@ -219,6 +219,7 @@ static void load_isp(const cJSON *root, VencConfigIsp *s)
 	s->exposure = (uint32_t)json_get_int(obj, "exposure", (int)s->exposure);
 	s->legacy_ae = json_get_bool(obj, "legacyAe", s->legacy_ae);
 	s->ae_fps = (uint32_t)json_get_int(obj, "aeFps", (int)s->ae_fps);
+	s->gain_max = (uint32_t)json_get_int(obj, "gainMax", (int)s->gain_max);
 	safe_strcpy(s->awb_mode, sizeof(s->awb_mode),
 		json_get_string(obj, "awbMode", s->awb_mode));
 	s->awb_ct = (uint32_t)json_get_int(obj, "awbCt", (int)s->awb_ct);
@@ -522,6 +523,7 @@ static cJSON *config_to_cjson(const VencConfig *cfg)
 		cJSON_AddNumberToObject(isp, "exposure", cfg->isp.exposure);
 		cJSON_AddBoolToObject(isp, "legacyAe", cfg->isp.legacy_ae);
 		cJSON_AddNumberToObject(isp, "aeFps", cfg->isp.ae_fps);
+		cJSON_AddNumberToObject(isp, "gainMax", cfg->isp.gain_max);
 		cJSON_AddStringToObject(isp, "awbMode", cfg->isp.awb_mode);
 		cJSON_AddNumberToObject(isp, "awbCt", cfg->isp.awb_ct);
 	}
