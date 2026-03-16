@@ -11,7 +11,7 @@
   },
   "isp": {
     "sensorBin": "", "exposure": 0,
-    "legacyAe": false,
+    "legacyAe": true,
     "aeFps": 15, "aeTargetLow": 100, "aeTargetHigh": 140,
     "aeChangePct": 10, "aeGainMax": 20480,
     "awbMode": "auto", "awbCt": 5500
@@ -20,13 +20,11 @@
   "video0": {
     "codec": "h265",
     "rcMode": "cbr",
-    "fps": 30,
+    "fps": 60,
     "size": "1920x1080",
     "bitrate": 8192,
     "gopSize": 1.0,
     "qpDelta": -4,
-    "slicesEnabled": true,
-    "sliceSize": 4,
     "lowDelay": false
   },
   "outgoing": {
