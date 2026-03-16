@@ -3,17 +3,12 @@
 
 #include <stdint.h>
 
-/** Custom AE configuration. */
+/** Custom AE configuration.
+ *  Gain/shutter limits are seeded from the ISP bin at startup;
+ *  target Y and step size are compile-time constants. */
 typedef struct {
 	uint32_t sensor_fps;       /* sensor output fps (for max shutter calc) */
 	uint32_t ae_fps;           /* AE processing rate in Hz (default 15) */
-	int      target_y_low;     /* dead-band lower bound 0-255 (default 100) */
-	int      target_y_high;    /* dead-band upper bound 0-255 (default 140) */
-	int      change_pct;       /* gain/shutter step size percent (default 10) */
-	uint32_t gain_min;         /* minimum sensor gain (default 1024 = 1x) */
-	uint32_t gain_max;         /* maximum sensor gain (default 20480 = 20x) */
-	uint32_t shutter_min_us;   /* minimum shutter time (default 150us) */
-	uint32_t shutter_max_us;   /* 0 = auto from sensor_fps */
 	int      verbose;          /* enable periodic status logging */
 } Star6eCus3aConfig;
 

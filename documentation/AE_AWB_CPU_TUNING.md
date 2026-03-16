@@ -3,11 +3,11 @@
 This document describes the 3A (AE/AWB) processing strategy in the standalone
 `venc` encoder.
 
-## Custom 3A Thread (Star6E, default since v0.3.0)
+## Custom 3A Thread (Star6E, opt-in via `legacyAe: false`)
 
-Star6E runs a dedicated 15 Hz thread that handles both AE (auto-exposure) and
-AWB (auto white balance), replacing the ISP's internal per-frame CUS3A
-callbacks.  This is the default behavior — no configuration is needed.
+Star6E can run a dedicated 15 Hz thread that handles both AE (auto-exposure)
+and AWB (auto white balance), replacing the ISP's internal per-frame CUS3A
+callbacks.  Enable it by setting `"legacyAe": false` in the config.
 
 ### Why Custom 3A?
 
@@ -26,13 +26,15 @@ exposure/gain/WB corrections directly.
 
 Proportional controller with dead-band:
 - Reads raw luma averages from `MI_ISP_AE_GetAeHwAvgStats` (128x90 grid)
-- Target: average Y within configurable range (default 100-140 out of 255)
+- Target: average Y within 100-140 (out of 255)
 - Priority: increase shutter first, then gain (dark); decrease gain first,
   then shutter (bright)
 - Max shutter auto-derived from sensor FPS (`1000000 / fps`), synced with
   the `isp.exposure` API control
-- Max gain configurable (default 20480 = 20x, FPV-optimized for low noise)
-- Step size configurable (default 10% per cycle)
+- Gain/shutter limits seeded from the ISP bin via `MI_ISP_AE_GetExposureLimit()`
+  at startup (sensor-specific calibrated values). Falls back to gain 1024-20480,
+  shutter min 150us if the ISP returns zeros (no bin loaded).
+- Step size: 10% per cycle
 
 ### AWB Algorithm
 
@@ -49,21 +51,19 @@ All settings are in the `isp` section of `/etc/venc.json`:
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `legacyAe` | `false` | Set `true` to revert to ISP internal AE + handoff |
+| `legacyAe` | `true` | Set `false` to use custom 3A thread instead of ISP internal AE |
 | `aeFps` | `15` | 3A processing rate in Hz |
-| `aeTargetLow` | `100` | Luma dead-band lower bound (0-255) |
-| `aeTargetHigh` | `140` | Luma dead-band upper bound (0-255) |
-| `aeChangePct` | `10` | AE step size per cycle (percent) |
-| `aeGainMax` | `20480` | Max sensor gain (x1024; 20480 = 20x) |
 
-Example — aggressive convergence with lower gain ceiling:
+Gain and shutter limits are automatically read from the ISP sensor bin at
+startup. The target Y range (100-140) and step size (10%) are compile-time
+constants.
+
+Example — higher AE rate:
 ```json
 {
   "isp": {
     "sensorBin": "/etc/sensors/imx335.bin",
-    "aeFps": 25,
-    "aeChangePct": 20,
-    "aeGainMax": 10240
+    "aeFps": 25
   }
 }
 ```
@@ -87,11 +87,13 @@ The thread logs status every 5 seconds:
 [cus3a] 300 frames, ae=23 awb=0, shutter=1306us gain=10240 avgY=132 wb=R2111/G1024/B2250 isp_ae=paused
 ```
 
-At startup it verifies the ISP AE is paused and logs the configuration:
+At startup it reads sensor-specific limits from the ISP bin, verifies the
+ISP AE is paused, and logs the configuration:
 ```
+[cus3a] ISP exposure limits: gain 1024-32768, shutter 150-33333us
 [cus3a] ISP AE state after pause: PAUSED (raw=1, ret=0)
 [cus3a] CUS3A AWB/AF disabled (ret=0)
-[cus3a] thread started: 15 Hz, target Y 100-140, gain 1024-20480, shutter 150-8333us, step 10%, awb=on
+[cus3a] thread started: 15 Hz, target Y 100-140, gain 1024-32768, shutter 150-8333us, step 10%, awb=on
 ```
 
 If the ISP AE state is unexpectedly re-enabled, the thread re-pauses it
@@ -116,18 +118,17 @@ and logs a warning.
 | 2 | 2400x1350 | 90 | 83-89 |
 | 3 | 1920x1080 | 120 | 119 |
 
-## Legacy AE Mode
+## Legacy AE Mode (default)
 
-Set `"legacyAe": true` in the ISP config section to revert to the original
-ISP-managed AE behavior:
+The default AE mode uses the ISP's internal auto-exposure:
 
 1. CUS3A is enabled (1,1,1) at startup
 2. After 1 second, CUS3A is disabled (0,0,0) — the "handoff"
 3. The ISP's internal AE continues running autonomously
 4. AWB runs via the ISP's internal callbacks at frame rate
 
-This mode exists for compatibility and debugging.  The custom 3A thread is
-not started and has zero overhead.
+In this mode the custom 3A thread is not started and has zero overhead.
+Set `"legacyAe": false` to switch to the custom 3A thread.
 
 ## Maruko Backend
 

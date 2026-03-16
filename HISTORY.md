@@ -12,8 +12,8 @@
   - Manual AWB (`ct_manual`) pauses custom AWB; `auto` resumes it.
   - `isp.exposure` API syncs max shutter to the custom AE thread.
   - Set `isp.legacyAe: true` to revert to old ISP AE + handoff behavior.
-- New config fields: `aeFps`, `aeTargetLow`, `aeTargetHigh`, `aeChangePct`,
-  `aeGainMax`, `legacyAe` in the `isp` section.
+- New config fields: `aeFps`, `legacyAe` in the `isp` section.
+  Gain/shutter limits now seeded from ISP bin (`MI_ISP_AE_GetExposureLimit`).
 - HW verified: all 4 imx335 sensor modes (30/60/90/120fps), cold-boot,
   live FPS switching, gemini dual recording, manual AWB transitions.
 

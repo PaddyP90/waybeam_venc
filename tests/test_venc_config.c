@@ -64,7 +64,7 @@ static int test_defaults(void)
 	CHECK("defaults_server", cfg.outgoing.server[0] == '\0');
 	CHECK("defaults_stream_mode", strcmp(cfg.outgoing.stream_mode, "rtp") == 0);
 	CHECK("defaults_payload", cfg.outgoing.max_payload_size == 1400);
-	CHECK("defaults_target_pkt_rate", cfg.outgoing.target_pkt_rate == 850);
+	CHECK("defaults_target_pkt_rate", cfg.outgoing.target_pkt_rate == 0);
 	CHECK("defaults_send_feedback", cfg.outgoing.send_feedback == false);
 
 	CHECK("defaults_roi_on", cfg.fpv.roi_enabled == true);

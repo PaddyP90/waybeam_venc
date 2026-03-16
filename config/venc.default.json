@@ -11,9 +11,7 @@
   },
   "isp": {
     "sensorBin": "", "exposure": 0,
-    "legacyAe": false,
-    "aeFps": 15, "aeTargetLow": 100, "aeTargetHigh": 140,
-    "aeChangePct": 10, "aeGainMax": 20480,
+    "legacyAe": true, "aeFps": 15,
     "awbMode": "auto", "awbCt": 5500
   },
   "image": { "mirror": false, "flip": false, "rotate": 0 },
@@ -34,7 +32,7 @@
     "server": "",
     "streamMode": "rtp",
     "maxPayloadSize": 1400,
-    "targetPacketRate": 850,
+    "targetPacketRate": 0,
     "sendFeedback": false,
     "audioPort": 5601,
     "sidecarPort": 5602

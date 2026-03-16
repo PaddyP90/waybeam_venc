@@ -99,10 +99,10 @@ Response `200`:
     "config": {
       "system": { "webPort": 80, "overclockLevel": 2, "verbose": false },
       "sensor": { "index": -1, "mode": -1, "unlockEnabled": true, "..." : "..." },
-      "isp": { "sensorBin": "/etc/sensors/imx415_greg_fpvXVIII-gpt200.bin", "exposure": 9, "legacyAe": false, "aeFps": 15, "aeTargetLow": 100, "aeTargetHigh": 140, "aeChangePct": 10, "aeGainMax": 20480 },
+      "isp": { "sensorBin": "/etc/sensors/imx415_greg_fpvXVIII-gpt200.bin", "exposure": 9, "legacyAe": false, "aeFps": 15, "awbMode": "auto", "awbCt": 5500 },
       "image": { "mirror": false, "flip": false, "rotate": 0 },
       "video0": { "codec": "h265", "rcMode": "cbr", "fps": 90, "size": "1920x1080", "bitrate": 8192, "gopSize": 1.0, "qpDelta": 0, "slicesEnabled": true, "sliceSize": 4, "lowDelay": false },
-      "outgoing": { "enabled": true, "server": "udp://192.168.2.20:5600", "streamMode": "rtp", "maxPayloadSize": 1400, "targetPacketRate": 850, "sendFeedback": false },
+      "outgoing": { "enabled": true, "server": "udp://192.168.2.20:5600", "streamMode": "rtp", "maxPayloadSize": 1400, "targetPacketRate": 0, "sendFeedback": false },
       "fpv": { "roiEnabled": true, "roiQp": 0, "roiSteps": 2, "roiCenter": 0.25, "noiseLevel": 0 }
     }
   }
@@ -350,9 +350,9 @@ curl "http://192.168.2.10/api/v1/set?outgoing.send_feedback=true"
   Applies to both RTP (FU fragmentation threshold) and compact modes. Values above 1400
   are supported for jumbo-frame networks.
 - `outgoing.target_pkt_rate`: Target packets-per-second for adaptive RTP payload sizing.
-  Default `850`. The adaptive algorithm adjusts the effective payload size to hit this
-  target, clamped to `[1000, maxPayloadSize]`. Set to `0` to disable adaptive sizing
-  (uses fixed `maxPayloadSize`).
+  Default `0` (disabled — uses fixed `maxPayloadSize`). When non-zero, the adaptive
+  algorithm adjusts the effective payload size to hit this target, clamped to
+  `[1000, maxPayloadSize]`.
 - `outgoing.send_feedback`: When `true`, calls `connect()` on the UDP socket so the kernel
   returns ICMP port-unreachable errors via `sendmsg()`. Useful for detecting that a receiver
   is down. Default `false` (fire-and-forget).

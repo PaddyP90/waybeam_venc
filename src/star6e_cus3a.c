@@ -97,12 +97,61 @@ typedef struct {
 #define CUS3A_ISP_STATE_NORMAL 0
 #define CUS3A_ISP_STATE_PAUSE  1
 
+/* AE operating constants */
+#define AE_TARGET_Y_FALLBACK_LOW   100  /* used when ISP scene_target unavailable */
+#define AE_TARGET_Y_FALLBACK_HIGH  140
+#define AE_TARGET_Y_DEADBAND        50  /* ±50 around ISP scene_target */
+#define AE_CHANGE_PCT                10
+
+/* AE fallback limits (used when ISP bin returns zeros) */
+#define AE_DEFAULT_GAIN_MIN      1024   /* 1x */
+#define AE_DEFAULT_GAIN_MAX     20480   /* 20x — FPV-oriented, low noise */
+#define AE_DEFAULT_SHUTTER_MIN    150   /* us */
+
 /* AWB gain limits */
 #define AWB_GAIN_MIN  512   /* 0.5x */
 #define AWB_GAIN_MAX  8192  /* 8x */
 #define AWB_SMOOTH_OLD 7    /* IIR filter: 70% old + 30% new */
 #define AWB_SMOOTH_NEW 3
 #define AWB_DEADBAND_PCT 2  /* percent change threshold */
+
+/* ── ISP exposure limit (same layout as star6e_controls.c) ───────────── */
+
+typedef struct {
+	unsigned int minShutterUs;
+	unsigned int maxShutterUs;
+	unsigned int minApertX10;
+	unsigned int maxApertX10;
+	unsigned int minSensorGain;
+	unsigned int minIspGain;
+	unsigned int maxSensorGain;
+	unsigned int maxIspGain;
+} Cus3aIspExposureLimit;
+
+/* AeExpoInfo_t — subset needed for scene_target readout. */
+typedef struct {
+	uint32_t u32FNx10;
+	uint32_t u32SensorGain;
+	uint32_t u32ISPGain;
+	uint32_t u32US;
+} Cus3aExpoValue;
+
+typedef struct {
+	uint32_t u32LumY;
+	uint32_t u32AvgY;
+	uint32_t u32Hits[128];
+} Cus3aHistWeightY;
+
+typedef struct {
+	int bIsStable;
+	int bIsReachBoundary;
+	Cus3aExpoValue stExpoValueLong;
+	Cus3aExpoValue stExpoValueShort;
+	Cus3aHistWeightY stHistWeightY;
+	uint32_t u32LVx10;
+	int32_t s32BV;
+	uint32_t u32SceneTarget;
+} Cus3aExpoInfo;
 
 /* ── Function pointer types (resolved via dlsym) ─────────────────────── */
 
@@ -118,12 +167,25 @@ typedef int (*fn_awb_get_hw_stats_t)(int channel, Cus3aAwbHwStats *stats);
 typedef int (*fn_cus3a_get_awb_status_t)(int channel, Cus3aAwbInfo *info);
 typedef int (*fn_cus3a_set_awb_param_t)(int channel, Cus3aAwbResult *result);
 typedef int (*fn_cus3a_enable_t)(int channel, void *params);
+typedef int (*fn_ae_get_exposure_limit_t)(int channel,
+	Cus3aIspExposureLimit *limit);
+typedef int (*fn_ae_query_exposure_info_t)(int channel,
+	Cus3aExpoInfo *info);
 
 /* ── Module state ────────────────────────────────────────────────────── */
 
 typedef struct {
 	/* config */
 	Star6eCus3aConfig cfg;
+
+	/* AE operating params — seeded from ISP bin at start */
+	int      target_y_low;     /* dead-band lower bound */
+	int      target_y_high;    /* dead-band upper bound */
+	uint32_t gain_min;
+	uint32_t gain_max;
+	uint32_t isp_gain_max;     /* ISP digital gain ceiling */
+	uint32_t shutter_min_us;
+	uint32_t shutter_max_us;   /* auto from sensor_fps */
 
 	/* thread */
 	pthread_t thread;
@@ -141,6 +203,8 @@ typedef struct {
 	fn_cus3a_open_frame_sync_t  fn_open_sync;
 	fn_cus3a_wait_frame_sync_t  fn_wait_sync;
 	fn_cus3a_close_frame_sync_t fn_close_sync;
+	fn_ae_get_exposure_limit_t  fn_get_exposure_limit;
+	fn_ae_query_exposure_info_t fn_query_exposure_info;
 
 	/* AWB symbols (optional — NULL if not available) */
 	fn_awb_get_hw_stats_t      fn_get_awb_hw_stats;
@@ -158,21 +222,14 @@ void star6e_cus3a_config_defaults(Star6eCus3aConfig *cfg)
 	memset(cfg, 0, sizeof(*cfg));
 	cfg->sensor_fps = 120;
 	cfg->ae_fps = 15;
-	cfg->target_y_low = 100;
-	cfg->target_y_high = 140;
-	cfg->change_pct = 10;
-	cfg->gain_min = 1024;        /* 1x */
-	cfg->gain_max = 20480;       /* 20x — FPV-oriented, low noise */
-	cfg->shutter_min_us = 150;
-	cfg->shutter_max_us = 0;     /* auto from sensor_fps */
 }
 
-static uint32_t compute_max_shutter(const Star6eCus3aConfig *cfg)
+static uint32_t compute_max_shutter(const Cus3aState *s)
 {
-	if (cfg->shutter_max_us > 0)
-		return cfg->shutter_max_us;
-	if (cfg->sensor_fps > 0)
-		return 1000000 / cfg->sensor_fps;
+	if (s->shutter_max_us > 0)
+		return s->shutter_max_us;
+	if (s->cfg.sensor_fps > 0)
+		return 1000000 / s->cfg.sensor_fps;
 	return 8333;  /* fallback ~120fps */
 }
 
@@ -207,6 +264,11 @@ static int resolve_symbols(Cus3aState *s)
 		s->h_cus3a, "Cus3AWaitIspFrameSync");
 	s->fn_close_sync = (fn_cus3a_close_frame_sync_t)dlsym(
 		s->h_cus3a, "Cus3ACloseIspFrameSync");
+
+	s->fn_get_exposure_limit = (fn_ae_get_exposure_limit_t)dlsym(
+		s->h_isp, "MI_ISP_AE_GetExposureLimit");
+	s->fn_query_exposure_info = (fn_ae_query_exposure_info_t)dlsym(
+		s->h_isp, "MI_ISP_AE_QueryExposureInfo");
 
 	if (!s->fn_get_hw_stats || !s->fn_get_ae_status ||
 	    !s->fn_set_ae_param) {
@@ -252,8 +314,9 @@ static int awb_available(const Cus3aState *s)
 static void do_ae(const Cus3aState *s, const Cus3aAeHwStats *hw_stats,
 	const Cus3aAeInfo *ae_info, Cus3aAeResult *result)
 {
-	const Star6eCus3aConfig *cfg = &s->cfg;
-	uint32_t max_shutter = compute_max_shutter(cfg);
+	uint32_t max_shutter = compute_max_shutter(s);
+	uint32_t isp_gain_max = s->isp_gain_max > 1024 ?
+		s->isp_gain_max : 1024;
 	unsigned int total = ae_info->AvgBlkX * ae_info->AvgBlkY;
 	unsigned long sum = 0;
 	unsigned int avg_y;
@@ -272,11 +335,12 @@ static void do_ae(const Cus3aState *s, const Cus3aAeHwStats *hw_stats,
 	 * getting stuck at zero (can happen on first frame). */
 	result->Size = sizeof(Cus3aAeResult);
 	result->Change = 0;
-	result->Shutter = ae_info->Shutter >= cfg->shutter_min_us ?
-		ae_info->Shutter : cfg->shutter_min_us;
-	result->SensorGain = ae_info->SensorGain >= cfg->gain_min ?
-		ae_info->SensorGain : cfg->gain_min;
-	result->IspGain = 1024;
+	result->Shutter = ae_info->Shutter >= s->shutter_min_us ?
+		ae_info->Shutter : s->shutter_min_us;
+	result->SensorGain = ae_info->SensorGain >= s->gain_min ?
+		ae_info->SensorGain : s->gain_min;
+	result->IspGain = ae_info->IspGain >= 1024 ?
+		ae_info->IspGain : 1024;
 	result->u4BVx16384 = 16384;
 	result->HdrRatio = 10;
 	result->AvgY = avg_y;
@@ -285,36 +349,47 @@ static void do_ae(const Cus3aState *s, const Cus3aAeHwStats *hw_stats,
 	result->IspGainHdrShort = 1024;
 
 	/* Dead-band: no change if luma is within target range */
-	if ((int)avg_y >= cfg->target_y_low && (int)avg_y <= cfg->target_y_high)
+	if ((int)avg_y >= s->target_y_low && (int)avg_y <= s->target_y_high)
 		return;
 
-	/* Too dark: increase shutter first, then gain */
-	if ((int)avg_y < cfg->target_y_low) {
+	/* Too dark: increase shutter → sensor gain → ISP gain */
+	if ((int)avg_y < s->target_y_low) {
 		if (result->Shutter < max_shutter) {
-			result->Shutter += result->Shutter * cfg->change_pct / 100;
+			result->Shutter += result->Shutter *
+				AE_CHANGE_PCT / 100;
 			if (result->Shutter > max_shutter)
 				result->Shutter = max_shutter;
-		} else {
+		} else if (result->SensorGain < s->gain_max) {
 			result->SensorGain += result->SensorGain *
-				cfg->change_pct / 100;
-			if (result->SensorGain > cfg->gain_max)
-				result->SensorGain = cfg->gain_max;
+				AE_CHANGE_PCT / 100;
+			if (result->SensorGain > s->gain_max)
+				result->SensorGain = s->gain_max;
+		} else if (result->IspGain < isp_gain_max) {
+			result->IspGain += result->IspGain *
+				AE_CHANGE_PCT / 100;
+			if (result->IspGain > isp_gain_max)
+				result->IspGain = isp_gain_max;
 		}
 		result->Change = 1;
 	}
 
-	/* Too bright: decrease gain first, then shutter */
-	else if ((int)avg_y > cfg->target_y_high) {
-		if (result->SensorGain > cfg->gain_min) {
+	/* Too bright: decrease ISP gain → sensor gain → shutter */
+	else if ((int)avg_y > s->target_y_high) {
+		if (result->IspGain > 1024) {
+			result->IspGain -= result->IspGain *
+				AE_CHANGE_PCT / 100;
+			if (result->IspGain < 1024)
+				result->IspGain = 1024;
+		} else if (result->SensorGain > s->gain_min) {
 			result->SensorGain -= result->SensorGain *
-				cfg->change_pct / 100;
-			if (result->SensorGain < cfg->gain_min)
-				result->SensorGain = cfg->gain_min;
+				AE_CHANGE_PCT / 100;
+			if (result->SensorGain < s->gain_min)
+				result->SensorGain = s->gain_min;
 		} else {
 			result->Shutter -= result->Shutter *
-				cfg->change_pct / 100;
-			if (result->Shutter < cfg->shutter_min_us)
-				result->Shutter = cfg->shutter_min_us;
+				AE_CHANGE_PCT / 100;
+			if (result->Shutter < s->shutter_min_us)
+				result->Shutter = s->shutter_min_us;
 		}
 		result->Change = 1;
 	}
@@ -471,12 +546,13 @@ static void *cus3a_thread(void *arg)
 		sleep_ms = 1;
 	if (s->cfg.verbose)
 		printf("[cus3a] thread started: %u Hz, target Y %d-%d, "
-			"gain %u-%u, shutter %u-%uus, step %d%%, awb=%s\n",
-			s->cfg.ae_fps, s->cfg.target_y_low,
-			s->cfg.target_y_high,
-			s->cfg.gain_min, s->cfg.gain_max,
-			s->cfg.shutter_min_us, compute_max_shutter(&s->cfg),
-			s->cfg.change_pct, have_awb ? "on" : "off");
+			"gain %u-%u, isp_gain max %u, "
+			"shutter %u-%uus, step %d%%, awb=%s\n",
+			s->cfg.ae_fps, s->target_y_low,
+			s->target_y_high,
+			s->gain_min, s->gain_max, s->isp_gain_max,
+			s->shutter_min_us, compute_max_shutter(s),
+			AE_CHANGE_PCT, have_awb ? "on" : "off");
 
 	while (s->running) {
 		/* Wait for frame boundary or sleep */
@@ -632,10 +708,73 @@ int star6e_cus3a_start(const Star6eCus3aConfig *cfg)
 	memset(&g_cus3a, 0, sizeof(g_cus3a));
 	g_cus3a.cfg = *cfg;
 
+	/* Seed AE operating params with defaults */
+	g_cus3a.target_y_low = AE_TARGET_Y_FALLBACK_LOW;
+	g_cus3a.target_y_high = AE_TARGET_Y_FALLBACK_HIGH;
+	g_cus3a.gain_min = AE_DEFAULT_GAIN_MIN;
+	g_cus3a.gain_max = AE_DEFAULT_GAIN_MAX;
+	g_cus3a.isp_gain_max = 1024;  /* no ISP digital gain by default */
+	g_cus3a.shutter_min_us = AE_DEFAULT_SHUTTER_MIN;
+	/* shutter_max_us stays 0 → auto from sensor_fps */
+
 	if (resolve_symbols(&g_cus3a) != 0) {
 		release_symbols(&g_cus3a);
 		return -1;
 	}
+
+	/* Read ISP bin exposure limits (sensor-specific calibrated values) */
+	if (g_cus3a.fn_get_exposure_limit) {
+		Cus3aIspExposureLimit lim;
+		memset(&lim, 0, sizeof(lim));
+		if (g_cus3a.fn_get_exposure_limit(0, &lim) == 0 &&
+		    lim.maxSensorGain > 0) {
+			g_cus3a.gain_min = lim.minSensorGain;
+			g_cus3a.gain_max = lim.maxSensorGain;
+			g_cus3a.isp_gain_max = lim.maxIspGain;
+			g_cus3a.shutter_min_us = lim.minShutterUs;
+			if (cfg->verbose)
+				printf("[cus3a] ISP exposure limits: "
+					"gain %u-%u, isp_gain max %u, "
+					"shutter %u-%uus\n",
+					lim.minSensorGain,
+					lim.maxSensorGain,
+					lim.maxIspGain,
+					lim.minShutterUs,
+					lim.maxShutterUs);
+		} else if (cfg->verbose) {
+			printf("[cus3a] ISP exposure limits not available, "
+				"using defaults\n");
+		}
+	}
+
+	/* Read ISP's scene_target to derive AE dead-band */
+	if (g_cus3a.fn_query_exposure_info) {
+		Cus3aExpoInfo einfo;
+		memset(&einfo, 0, sizeof(einfo));
+		if (g_cus3a.fn_query_exposure_info(0, &einfo) == 0 &&
+		    einfo.u32SceneTarget > 0) {
+			int target = (int)einfo.u32SceneTarget;
+			g_cus3a.target_y_low = target - AE_TARGET_Y_DEADBAND;
+			g_cus3a.target_y_high = target + AE_TARGET_Y_DEADBAND;
+			if (g_cus3a.target_y_low < 10)
+				g_cus3a.target_y_low = 10;
+			if (cfg->verbose)
+				printf("[cus3a] ISP scene_target=%u, "
+					"dead-band %d-%d\n",
+					einfo.u32SceneTarget,
+					g_cus3a.target_y_low,
+					g_cus3a.target_y_high);
+		} else if (cfg->verbose) {
+			printf("[cus3a] scene_target not available, "
+				"using fallback %d-%d\n",
+				g_cus3a.target_y_low,
+				g_cus3a.target_y_high);
+		}
+	}
+
+	/* Ensure gain_min is at least 1024 (1x) to avoid stuck-at-zero */
+	if (g_cus3a.gain_min < 1024)
+		g_cus3a.gain_min = 1024;
 
 	g_cus3a.running = 1;
 	ret = pthread_create(&g_cus3a.thread, NULL, cus3a_thread, &g_cus3a);
@@ -682,7 +821,7 @@ int star6e_cus3a_running(void)
 void star6e_cus3a_set_shutter_max(uint32_t max_us)
 {
 	if (max_us > 0)
-		g_cus3a.cfg.shutter_max_us = max_us;
+		g_cus3a.shutter_max_us = max_us;
 }
 
 void star6e_cus3a_set_awb_manual(int manual)

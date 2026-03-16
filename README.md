@@ -86,9 +86,7 @@ template is provided at `config/venc.default.json`.
   },
   "isp": {
     "sensorBin": "", "exposure": 0,
-    "legacyAe": false,
-    "aeFps": 15, "aeTargetLow": 100, "aeTargetHigh": 140,
-    "aeChangePct": 10, "aeGainMax": 20480,
+    "legacyAe": true, "aeFps": 15,
     "awbMode": "auto", "awbCt": 5500
   },
   "image": { "mirror": false, "flip": false, "rotate": 0 },
@@ -99,7 +97,7 @@ template is provided at `config/venc.default.json`.
   },
   "outgoing": {
     "enabled": false, "server": "", "streamMode": "rtp",
-    "maxPayloadSize": 1400, "targetPacketRate": 850,
+    "maxPayloadSize": 1400, "targetPacketRate": 0,
     "sendFeedback": false, "audioPort": 5601, "sidecarPort": 0
   },
   "fpv": {
@@ -322,10 +320,6 @@ the video stream. Fields marked **restart** trigger a pipeline reinit.
 | `isp.exposure` | uint | live | Exposure time in ms (0 = auto) |
 | `isp.legacy_ae` | bool | restart | Use ISP internal AE instead of custom 3A |
 | `isp.ae_fps` | uint | restart | Custom 3A processing rate in Hz (default 15) |
-| `isp.ae_target_low` | int | restart | AE luma target lower bound, 0-255 (default 100) |
-| `isp.ae_target_high` | int | restart | AE luma target upper bound, 0-255 (default 140) |
-| `isp.ae_change_pct` | int | restart | AE convergence step size percent (default 10) |
-| `isp.ae_gain_max` | uint | restart | Max sensor gain, x1024 (default 20480 = 20x) |
 | `isp.awb_mode` | string | live | `"auto"` or `"ct_manual"` |
 | `isp.awb_ct` | uint | live | Color temperature in K (for ct_manual) |
 

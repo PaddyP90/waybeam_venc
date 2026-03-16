@@ -189,16 +189,14 @@ static void start_custom_ae(const Star6ePipelineState *ps,
 	ae_cfg.sensor_fps = ps->sensor.fps;
 	if (vcfg->isp.ae_fps > 0)
 		ae_cfg.ae_fps = vcfg->isp.ae_fps;
-	if (vcfg->isp.ae_target_low > 0)
-		ae_cfg.target_y_low = vcfg->isp.ae_target_low;
-	if (vcfg->isp.ae_target_high > 0)
-		ae_cfg.target_y_high = vcfg->isp.ae_target_high;
-	if (vcfg->isp.ae_change_pct > 0)
-		ae_cfg.change_pct = vcfg->isp.ae_change_pct;
-	if (vcfg->isp.ae_gain_max > 0)
-		ae_cfg.gain_max = vcfg->isp.ae_gain_max;
 	ae_cfg.verbose = vcfg->system.verbose;
 	star6e_cus3a_start(&ae_cfg);
+
+	/* Sync shutter cap with the exposure config.  The pipeline has
+	 * already capped the ISP's internal limit; mirror it to the
+	 * custom AE thread so it doesn't exceed the user's exposure. */
+	if (vcfg->isp.exposure > 0)
+		star6e_cus3a_set_shutter_max(vcfg->isp.exposure * 1000);
 }
 /* Reduce ch1 bitrate by 10%.  Mirrors apply_bitrate() from
  * star6e_controls.c but operates on the dual VENC channel. */
