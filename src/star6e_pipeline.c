@@ -1222,10 +1222,32 @@ int star6e_pipeline_reinit(Star6ePipelineState *state, const VencConfig *vcfg,
 	    pconf.image_height != prev_image_height) {
 		uint32_t sensor_w = state->sensor.plane.capt.width;
 		uint32_t sensor_h = state->sensor.plane.capt.height;
+
+		/* Use usable sensor dimensions for precrop (same logic as
+		 * select_and_configure_sensor): sensors with MIPI overscan report
+		 * a larger plane.capt than the usable mode.output area. */
+		uint32_t usable_w = sensor_w;
+		uint32_t usable_h = sensor_h;
+		if (state->sensor.mode.output.width > 0 &&
+		    state->sensor.mode.output.height > 0) {
+			if (state->sensor.mode.output.width < usable_w)
+				usable_w = state->sensor.mode.output.width;
+			if (state->sensor.mode.output.height < usable_h)
+				usable_h = state->sensor.mode.output.height;
+		}
+		uint16_t overscan_x = (uint16_t)(
+			((sensor_w - usable_w) / 2) & ~1u);
+		uint16_t overscan_y = (uint16_t)(
+			((sensor_h - usable_h) / 2) & ~1u);
+
 		Star6ePrecropRect old_precrop = star6e_pipeline_compute_precrop(
-			sensor_w, sensor_h, prev_image_width, prev_image_height);
+			usable_w, usable_h, prev_image_width, prev_image_height);
+		old_precrop.x += overscan_x;
+		old_precrop.y += overscan_y;
 		Star6ePrecropRect new_precrop = star6e_pipeline_compute_precrop(
-			sensor_w, sensor_h, pconf.image_width, pconf.image_height);
+			usable_w, usable_h, pconf.image_width, pconf.image_height);
+		new_precrop.x += overscan_x;
+		new_precrop.y += overscan_y;
 
 		if (old_precrop.x != new_precrop.x ||
 		    old_precrop.y != new_precrop.y ||
@@ -1278,6 +1300,9 @@ int star6e_pipeline_reinit(Star6ePipelineState *state, const VencConfig *vcfg,
 				fprintf(stderr,
 					"ERROR: MI_VIF_SetChnPortAttr reinit"
 					" failed %d\n", ret);
+				/* VPE is destroyed; fully stop VIF for clean
+				 * state before the caller recovers or exits. */
+				MI_VIF_DisableDev(0);
 				return ret;
 			}
 			ret = MI_VIF_EnableChnPort(0, 0);
@@ -1285,17 +1310,25 @@ int star6e_pipeline_reinit(Star6ePipelineState *state, const VencConfig *vcfg,
 				fprintf(stderr,
 					"ERROR: MI_VIF_EnableChnPort reinit"
 					" failed %d\n", ret);
+				MI_VIF_DisableDev(0);
 				return ret;
 			}
 
 			/* Recreate VPE with new input crop and output dimensions. */
+			pconf.precrop = new_precrop;
 			ret = star6e_pipeline_start_vpe(&state->sensor,
 				&new_precrop,
 				pconf.image_width, pconf.image_height,
 				pconf.image_mirror, pconf.image_flip,
 				pconf.vpe_level_3dnr, sdk_quiet);
-			if (ret != 0)
+			if (ret != 0) {
+				/* VIF is enabled with new crop but VPE failed;
+				 * disable VIF to leave pipeline in consistent
+				 * stopped state. */
+				MI_VIF_DisableChnPort(0, 0);
+				MI_VIF_DisableDev(0);
 				return ret;
+			}
 
 		} else {
 			/* Same aspect ratio: only resize VPE output port.
@@ -1319,6 +1352,9 @@ int star6e_pipeline_reinit(Star6ePipelineState *state, const VencConfig *vcfg,
 					" failed %d\n",
 					pconf.image_width, pconf.image_height,
 					ret);
+				/* Restore port enable so VPE remains usable
+				 * at the previous output dimensions. */
+				MI_VPE_EnablePort(0, 0);
 				return ret;
 			}
 			ret = MI_VPE_EnablePort(0, 0);
