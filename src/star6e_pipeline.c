@@ -1179,11 +1179,18 @@ static void star6e_pipeline_stop_venc_level(Star6ePipelineState *state)
 	star6e_video_reset(&state->video);
 }
 
+/* flatten: same rationale as star6e_pipeline_start — when this function gains
+ * a call to star6e_pipeline_start_vpe (on aspect-ratio resize), GCC -Os would
+ * de-inline it, changing the stack layout for MI_VPE_CreateChannel and breaking
+ * ISP channel creation.  flatten keeps all static callees inlined here too. */
+__attribute__((flatten))
 int star6e_pipeline_reinit(Star6ePipelineState *state, const VencConfig *vcfg,
 	SdkQuietState *sdk_quiet)
 {
 	Star6ePipelineConfig pconf;
 	uint32_t venc_fps;
+	uint32_t prev_image_width;
+	uint32_t prev_image_height;
 	int ret;
 
 	if (!state || !vcfg)
@@ -1199,12 +1206,130 @@ int star6e_pipeline_reinit(Star6ePipelineState *state, const VencConfig *vcfg,
 	pconf.sensor_framerate = state->sensor.fps;
 	pconf.venc_gop_size = pipeline_common_gop_frames(vcfg->video0.gop_size,
 		pconf.sensor_framerate);
+
+	/* Capture current dimensions before clamping overwrites state. */
+	prev_image_width  = state->image_width;
+	prev_image_height = state->image_height;
+
 	pipeline_common_clamp_image_size("",
 		state->sensor.plane.capt.width,
 		state->sensor.plane.capt.height,
 		&pconf.image_width, &pconf.image_height);
-	state->image_width = pconf.image_width;
+	state->image_width  = pconf.image_width;
 	state->image_height = pconf.image_height;
+
+	if (pconf.image_width != prev_image_width ||
+	    pconf.image_height != prev_image_height) {
+		uint32_t sensor_w = state->sensor.plane.capt.width;
+		uint32_t sensor_h = state->sensor.plane.capt.height;
+		Star6ePrecropRect old_precrop = star6e_pipeline_compute_precrop(
+			sensor_w, sensor_h, prev_image_width, prev_image_height);
+		Star6ePrecropRect new_precrop = star6e_pipeline_compute_precrop(
+			sensor_w, sensor_h, pconf.image_width, pconf.image_height);
+
+		if (old_precrop.x != new_precrop.x ||
+		    old_precrop.y != new_precrop.y ||
+		    old_precrop.w != new_precrop.w ||
+		    old_precrop.h != new_precrop.h) {
+			/* Aspect ratio changed: unbind VIF→VPE, destroy VPE, reconfigure
+			 * VIF capture region, recreate VPE with new dimensions.
+			 * The VIF device stays running — MIPI PHY is never touched.
+			 * bound_vif_vpe is cleared so bind_and_finalize_pipeline will
+			 * re-establish the VIF→VPE REALTIME bind. */
+			printf("> Reinit: AR change %ux%u -> %ux%u, reconfiguring VIF+VPE\n",
+				prev_image_width, prev_image_height,
+				pconf.image_width, pconf.image_height);
+
+			if (state->bound_vif_vpe) {
+				MI_SYS_UnBindChnPort(&state->vif_port,
+					&state->vpe_port);
+				state->bound_vif_vpe = 0;
+			}
+
+			star6e_pipeline_stop_vpe();
+
+			/* Reconfigure VIF port crop (device stays enabled). */
+			MI_VIF_PortAttr_t vif_port = {0};
+			vif_port.capt.x      = state->sensor.plane.capt.x +
+				new_precrop.x;
+			vif_port.capt.y      = state->sensor.plane.capt.y +
+				new_precrop.y;
+			vif_port.capt.width  = new_precrop.w;
+			vif_port.capt.height = new_precrop.h;
+			vif_port.dest.width  = new_precrop.w;
+			vif_port.dest.height = new_precrop.h;
+			vif_port.field       = 0;
+			vif_port.interlaceOn = 0;
+			if (state->sensor.plane.bayer > I6_BAYER_END) {
+				vif_port.pixFmt = state->sensor.plane.pixFmt;
+			} else {
+				vif_port.pixFmt = (i6_common_pixfmt)(
+					I6_PIXFMT_RGB_BAYER +
+					state->sensor.plane.precision *
+					I6_BAYER_END +
+					state->sensor.plane.bayer);
+			}
+			vif_port.frate        = I6_VIF_FRATE_FULL;
+			vif_port.frameLineCnt = 0;
+
+			MI_VIF_DisableChnPort(0, 0);
+			ret = MI_VIF_SetChnPortAttr(0, 0, &vif_port);
+			if (ret != 0) {
+				fprintf(stderr,
+					"ERROR: MI_VIF_SetChnPortAttr reinit"
+					" failed %d\n", ret);
+				return ret;
+			}
+			ret = MI_VIF_EnableChnPort(0, 0);
+			if (ret != 0) {
+				fprintf(stderr,
+					"ERROR: MI_VIF_EnableChnPort reinit"
+					" failed %d\n", ret);
+				return ret;
+			}
+
+			/* Recreate VPE with new input crop and output dimensions. */
+			ret = star6e_pipeline_start_vpe(&state->sensor,
+				&new_precrop,
+				pconf.image_width, pconf.image_height,
+				pconf.image_mirror, pconf.image_flip,
+				pconf.vpe_level_3dnr, sdk_quiet);
+			if (ret != 0)
+				return ret;
+
+		} else {
+			/* Same aspect ratio: only resize VPE output port.
+			 * VIF and the VIF→VPE REALTIME bind are unchanged. */
+			printf("> Reinit: resolution change %ux%u -> %ux%u,"
+				" resizing VPE port\n",
+				prev_image_width, prev_image_height,
+				pconf.image_width, pconf.image_height);
+
+			MI_VPE_PortAttr_t vpe_port = {0};
+			vpe_port.output.width  = pconf.image_width;
+			vpe_port.output.height = pconf.image_height;
+			vpe_port.pixFmt        = I6_PIXFMT_YUV420SP;
+			vpe_port.compress      = I6_COMPR_NONE;
+
+			MI_VPE_DisablePort(0, 0);
+			ret = MI_VPE_SetPortMode(0, 0, &vpe_port);
+			if (ret != 0) {
+				fprintf(stderr,
+					"ERROR: MI_VPE_SetPortMode(%ux%u)"
+					" failed %d\n",
+					pconf.image_width, pconf.image_height,
+					ret);
+				return ret;
+			}
+			ret = MI_VPE_EnablePort(0, 0);
+			if (ret != 0) {
+				fprintf(stderr,
+					"ERROR: MI_VPE_EnablePort after"
+					" resize failed %d\n", ret);
+				return ret;
+			}
+		}
+	}
 
 	state->venc_channel = 0;
 	venc_fps = vcfg->video0.fps;
