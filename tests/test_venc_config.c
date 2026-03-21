@@ -50,7 +50,7 @@ static int test_defaults(void)
 
 	CHECK("defaults_codec", strcmp(cfg.video0.codec, "h265") == 0);
 	CHECK("defaults_rc_mode", strcmp(cfg.video0.rc_mode, "cbr") == 0);
-	CHECK("defaults_fps", cfg.video0.fps == 30);
+	CHECK("defaults_fps", cfg.video0.fps == 60);
 	CHECK("defaults_width", cfg.video0.width == 1920);
 	CHECK("defaults_height", cfg.video0.height == 1080);
 	CHECK("defaults_bitrate", cfg.video0.bitrate == 8192);
@@ -69,9 +69,9 @@ static int test_defaults(void)
 	CHECK("defaults_noise", cfg.fpv.noise_level == 0);
 
 	CHECK("defaults_audio_off", cfg.audio.enabled == false);
-	CHECK("defaults_audio_rate", cfg.audio.sample_rate == 16000);
+	CHECK("defaults_audio_rate", cfg.audio.sample_rate == 48000);
 	CHECK("defaults_audio_ch", cfg.audio.channels == 1);
-	CHECK("defaults_audio_codec", strcmp(cfg.audio.codec, "pcm") == 0);
+	CHECK("defaults_audio_codec", strcmp(cfg.audio.codec, "opus") == 0);
 	CHECK("defaults_audio_vol", cfg.audio.volume == 80);
 	CHECK("defaults_audio_port", cfg.outgoing.audio_port == 5601);
 
@@ -170,7 +170,7 @@ static int test_load_missing_file(void)
 	int ret = venc_config_load("/tmp/nonexistent_venc_test_file.json", &cfg);
 	CHECK("missing_file_ok", ret == 0);
 	/* Defaults preserved */
-	CHECK("missing_defaults_fps", cfg.video0.fps == 30);
+	CHECK("missing_defaults_fps", cfg.video0.fps == 60);
 	return failures;
 }
 
@@ -377,7 +377,7 @@ static int test_sample_config_file(void)
 	CHECK("sample_load_ok", ret == 0);
 	if (ret != 0) return failures;
 
-	CHECK("sample_fps_30", cfg.video0.fps == 30);
+	CHECK("sample_fps_30", cfg.video0.fps == 60);
 	CHECK("sample_codec_h265", strcmp(cfg.video0.codec, "h265") == 0);
 	CHECK("sample_enabled", cfg.outgoing.enabled == false);
 	CHECK("sample_server", strcmp(cfg.outgoing.server, "") == 0);

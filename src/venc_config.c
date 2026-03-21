@@ -92,7 +92,7 @@ void venc_config_defaults(VencConfig *cfg)
 	/* video0 */
 	safe_strcpy(cfg->video0.codec, sizeof(cfg->video0.codec), "h265");
 	safe_strcpy(cfg->video0.rc_mode, sizeof(cfg->video0.rc_mode), "cbr");
-	cfg->video0.fps = 30;
+	cfg->video0.fps = 60;
 	cfg->video0.width = 1920;
 	cfg->video0.height = 1080;
 	cfg->video0.bitrate = 8192;
@@ -111,14 +111,14 @@ void venc_config_defaults(VencConfig *cfg)
 	cfg->fpv.roi_enabled = true;
 	cfg->fpv.roi_qp = 0;
 	cfg->fpv.roi_steps = 2;
-	cfg->fpv.roi_center = 0.25;
+	cfg->fpv.roi_center = 0.4;
 	cfg->fpv.noise_level = 0;
 
 	/* audio */
 	cfg->audio.enabled = false;
-	cfg->audio.sample_rate = 16000;
+	cfg->audio.sample_rate = 48000;
 	cfg->audio.channels = 1;
-	safe_strcpy(cfg->audio.codec, sizeof(cfg->audio.codec), "pcm");
+	safe_strcpy(cfg->audio.codec, sizeof(cfg->audio.codec), "opus");
 	cfg->audio.volume = 80;
 	cfg->audio.mute = false;
 	cfg->outgoing.audio_port = 5601;
