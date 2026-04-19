@@ -954,3 +954,4 @@ int venc_webui_register(void) {
     rc |= venc_recordings_register();                        
     rc |= venc_httpd_route("GET", "/", handle_dashboard, NULL); 
     return rc;
+}
