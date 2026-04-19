@@ -948,7 +948,8 @@ static int handle_dashboard(int fd, const HttpRequest *req, void *ctx)
 		(int)sizeof(dashboard_gz));
 }
 
-int venc_webui_register(void)
-{
-	return venc_httpd_route("GET", "/", handle_dashboard, NULL);
-}
+int venc_webui_register(void) {
+    int rc = 0;
+    rc |= venc_recordings_register();                        
+    rc |= venc_httpd_route("GET", "/", handle_dashboard, NULL); 
+    return rc;
